@@ -7,25 +7,25 @@ have unfiltered DNS egress.
 
 ## Query flow
 
-Example with the subzone `up.tunnel.example.com`, delegated (NS record) from
-`example.com` to your authoritative server:
+Template domain: `hackerman.nu` — its real nameservers are the Cloudflare pair
+`abby.ns.cloudflare.com` / `ben.ns.cloudflare.com`. The diagram adds an
+imaginary NS delegation on the subdomain `files.hackerman.nu`:
 
 ```mermaid
 flowchart LR
-    A["Sensitive host<br/>client.py / client.sh / client.ps1<br/>s: start, c: chunks, e: end + sha256"]
-    B["Resolver (recursive)<br/>e.g. the lab DNS"]
-    C["Authoritative NS: server.py<br/>zone up.tunnel.example.com<br/>parses qname, buffers chunks per session<br/>verifies SHA-256, writes received/secret.txt"]
-    A -->|"DNS query, UDP/53<br/>c.CHUNK.SEQ.SESS.up.tunnel.example.com"| B
-    B -->|"recursion"| C
-    C -.->|"TXT ACK: ok-SEQ / done"| B
-    B -.->|"ACK"| A
+    A["Sensitive host<br/>client.py / client.sh / client.ps1"] -->|"DNS query, UDP/53<br/>h.CHUNK.SEQ.SESS.up.files.hackerman.nu"| R["Public resolver<br/>1.1.1.1 (Cloudflare)"]
+    R -->|"which NS for hackerman.nu?"| Z["abby.ns.cloudflare.com<br/>ben.ns.cloudflare.com"]
+    Z -->|"delegation: files.hackerman.nu NS = ns1.attacker.example"| R
+    R -->|"follows the delegation"| S["ns1.attacker.example — server.py<br/>reassembles chunks, SHA-256 verified<br/>writes received/secret.txt"]
+    S -.->|"TXT ACK: ok-SEQ / done"| R
 ```
 
-The sensitive host sends ordinary DNS queries on UDP/53 through the normal
-resolver; the resolver recurses to your server, which rebuilds the file from
-the query names and ACKs with TXT responses. A firewall rule that only allows
-DNS egress does not stop this — detection has to look at label entropy and
-unique subdomains per zone, not just query rate.
+The sensitive host's queries first go to the public resolver (1.1.1.1). The
+resolver asks `hackerman.nu`'s own NS, receives the NS delegation for
+`files.hackerman.nu`, and then queries the attacker's server directly — all
+ordinary DNS on UDP/53. A firewall rule that only allows DNS egress does not
+stop this; detection has to look at label entropy and unique subdomains per
+zone, not just query rate.
 
 ## 1. Start the authoritative server
 
